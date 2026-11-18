@@ -44,11 +44,12 @@ const KEYWORDS = [
 ];
 
 async function fetchRSS(feed) {
-  const proxy = "https://api.allorigins.win/get?url=" + encodeURIComponent(feed.url);
+  const proxy = "https://proxy.cors.dev/" + feed.url;
   const res = await fetch(proxy);
-  const data = await res.json();
+  if (!res.ok) throw new Error("proxy " + res.status);
+  const text = await res.text();
   const parser = new DOMParser();
-  const xml = parser.parseFromString(data.contents, "text/xml");
+  const xml = parser.parseFromString(text, "text/xml");
   const items = [...xml.querySelectorAll("item")].slice(0, 15);
   return items.map(item => ({
     title: item.querySelector("title")?.textContent || "",
