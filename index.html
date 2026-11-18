@@ -1,1 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panic Loop Monitor — Prototype</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; background: #111; color: #eee; }
+  h1 { font-size: 1.5rem; }
+  .note { background: #222; padding: 1rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; }
+  .item { border-bottom: 1px solid #333; padding: 0.8rem 0; }
+  .item.flagged { background: #2a1a1a; padding: 0.8rem; border-radius: 6px; }
+  .source { color: #888; font-size: 0.85rem; }
+  a { color: #6af; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { background: #333; color: #eee; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #444; }
+  #status { margin: 1rem 0; color: #aaa; }
+</style>
+</head>
+<body>
+<h1>Panic Loop Monitor <small>(prototype)</small></h1>
+<div class="note">
+  Client-side prototype that pulls public RSS headlines from major outlets and flags items matching keywords associated with the kinds of clustered technical or aerial reports that can feed panic loops (outages, drones, nuclear, blackouts, etc.).<br>
+  It does not assess truth, causation, or official statements. It only surfaces potential framing. Host anywhere free (GitHub Pages, Netlify, local file). No server, no cost.
+</div>
+<button onclick="loadFeeds()">Refresh headlines</button>
+<div id="status">Click refresh to load.</div>
+<div id="results"></div>
 
+<script>
+const FEEDS = [
+  { name: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
+  { name: "NYT Home", url: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml" },
+  { name: "NPR News", url: "https://feeds.npr.org/1001/rss.xml" },
+  { name: "The Guardian World", url: "https://www.theguardian.com/world/rss" },
+  { name: "Al Jazeera", url: "https://www.aljazeera.com/xml/rss/all.xml" }
+];
+
+const KEYWORDS = [
+  "outage", "blackout", "drone", "drones", "nuclear", "attack", "emergency",
+  "crisis", "shutdown", "failure", "panic", "threat", "cyber", "grid",
+  "communications down", "food outage", "survival", "preparedness"
+];
+
+async function fetchRSS(feed) {
+  const proxy = "https://api.allorigins.win/get?url=" + encodeURIComponent(feed.url);
+  const res = await fetch(proxy);
+  const data = await res.json();
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(data.contents, "text/xml");
+  const items = [...xml.querySelectorAll("item")].slice(0, 15);
+  return items.map(item => ({
+    title: item.querySelector("title")?.textContent || "",
+    link: item.querySelector("link")?.textContent || "",
+    source: feed.name,
+    desc: item.querySelector("description")?.textContent || ""
+  }));
+}
+
+function isFlagged(text) {
+  const lower = text.toLowerCase();
+  return KEYWORDS.some(k => lower.includes(k));
+}
+
+async function loadFeeds() {
+  const status = document.getElementById("status");
+  const results = document.getElementById("results");
+  status.textContent = "Loading…";
+  results.innerHTML = "";
+  let all = [];
+  for (const feed of FEEDS) {
+    try {
+      const items = await fetchRSS(feed);
+      all = all.concat(items);
+    } catch (e) {
+      console.warn(feed.name, e);
+    }
+  }
+  all.sort((a, b) => (isFlagged(b.title + b.desc) ? 1 : 0) - (isFlagged(a.title + a.desc) ? 1 : 0));
+  status.textContent = `Loaded ${all.length} headlines. Flagged items appear first.`;
+  all.forEach(item => {
+    const flagged = isFlagged(item.title + item.desc);
+    const div = document.createElement("div");
+    div.className = "item" + (flagged ? " flagged" : "");
+    div.innerHTML = `
+      <div><a href="\( {item.link}" target="_blank" rel="noopener"> \){item.title}</a></div>
+      <div class="source">\( {item.source} \){flagged ? " · potential framing match" : ""}</div>
+    `;
+    results.appendChild(div);
+  });
+}
+</script>
+</body>
+</html>
