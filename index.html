@@ -50,18 +50,23 @@ async function fetchRSS(feed) {
   const text = await res.text();
   const parser = new DOMParser();
   const xml = parser.parseFromString(text, "text/xml");
-  const items = [...xml.querySelectorAll("item")].slice(0, 15);
-  return items.map(item => ({
-    title: item.querySelector("title")?.textContent || "",
-    link: item.querySelector("link")?.textContent || "",
-    source: feed.name,
-    desc: item.querySelector("description")?.textContent || ""
-  }));
+  const items = Array.from(xml.querySelectorAll("item")).slice(0, 15);
+  return items.map(function(item) {
+    return {
+      title: (item.querySelector("title") && item.querySelector("title").textContent) || "",
+      link: (item.querySelector("link") && item.querySelector("link").textContent) || "",
+      source: feed.name,
+      desc: (item.querySelector("description") && item.querySelector("description").textContent) || ""
+    };
+  });
 }
 
 function isFlagged(text) {
   const lower = text.toLowerCase();
-  return KEYWORDS.some(k => lower.includes(k));
+  for (var i = 0; i < KEYWORDS.length; i++) {
+    if (lower.indexOf(KEYWORDS[i]) !== -1) return true;
+  }
+  return false;
 }
 
 async function loadFeeds() {
@@ -69,27 +74,31 @@ async function loadFeeds() {
   const results = document.getElementById("results");
   status.textContent = "Loading…";
   results.innerHTML = "";
-  let all = [];
-  for (const feed of FEEDS) {
+  var all = [];
+  for (var f = 0; f < FEEDS.length; f++) {
     try {
-      const items = await fetchRSS(feed);
+      var items = await fetchRSS(FEEDS[f]);
       all = all.concat(items);
     } catch (e) {
-      console.warn(feed.name, e);
+      console.warn(FEEDS[f].name, e);
     }
   }
-  all.sort((a, b) => (isFlagged(b.title + b.desc) ? 1 : 0) - (isFlagged(a.title + a.desc) ? 1 : 0));
-  status.textContent = `Loaded ${all.length} headlines. Flagged items appear first.`;
-  all.forEach(item => {
-    const flagged = isFlagged(item.title + item.desc);
-    const div = document.createElement("div");
-    div.className = "item" + (flagged ? " flagged" : "");
-    div.innerHTML = `
-      <div><a href="\( {item.link}" target="_blank" rel="noopener"> \){item.title}</a></div>
-      <div class="source">\( {item.source} \){flagged ? " · potential framing match" : ""}</div>
-    `;
-    results.appendChild(div);
+  all.sort(function(a, b) {
+    var af = isFlagged(a.title + a.desc) ? 1 : 0;
+    var bf = isFlagged(b.title + b.desc) ? 1 : 0;
+    return bf - af;
   });
+  status.textContent = "Loaded " + all.length + " headlines. Flagged items appear first.";
+  for (var i = 0; i < all.length; i++) {
+    var item = all[i];
+    var flagged = isFlagged(item.title + item.desc);
+    var div = document.createElement("div");
+    div.className = "item" + (flagged ? " flagged" : "");
+    var html = "<div><a href=\"" + item.link + "\" target=\"_blank\" rel=\"noopener\">" + item.title + "</a></div>";
+    html += "<div class=\"source\">" + item.source + (flagged ? " · potential framing match" : "") + "</div>";
+    div.innerHTML = html;
+    results.appendChild(div);
+  }
 }
 </script>
 </body>
