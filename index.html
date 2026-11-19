@@ -9,8 +9,10 @@
   h1 { font-size: 1.5rem; }
   .note { background: #222; padding: 1rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; }
   .item { border-bottom: 1px solid #333; padding: 0.8rem 0; }
-  .item.flagged { background: #2a1a1a; padding: 0.8rem; border-radius: 6px; }
+  .item.cat1 { background: #2a1a1a; padding: 0.8rem; border-radius: 6px; }
+  .item.cat2 { background: #221a1a; padding: 0.8rem; border-radius: 6px; }
   .source { color: #888; font-size: 0.85rem; }
+  .cat { font-size: 0.75rem; color: #aaa; margin-top: 0.2rem; }
   a { color: #6af; text-decoration: none; }
   a:hover { text-decoration: underline; }
   button { background: #333; color: #eee; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
@@ -21,8 +23,9 @@
 <body>
 <h1>Panic Loop Monitor <small>(prototype)</small></h1>
 <div class="note">
-  Client-side prototype that pulls public RSS headlines from major outlets and flags items matching keywords associated with the kinds of clustered technical or aerial reports that can feed panic loops (outages, drones, nuclear, blackouts, etc.).<br>
-  It does not assess truth, causation, or official statements. It only surfaces potential framing. Host anywhere free (GitHub Pages, Netlify, local file). No server, no cost.
+  Client-side prototype that pulls public RSS headlines from major outlets and sorts them into four categories based on language patterns associated with panic framing.<br>
+  Cat 1: current panic mongering likely · Cat 2: has panic-inducing traits · Cat 3: clickbaitish · Cat 4: worth being aware of.<br>
+  Does not assess truth, causation, or official statements. Only surfaces potential framing. No server, no cost.
 </div>
 <button onclick="loadFeeds()">Refresh headlines</button>
 <div id="status">Click refresh to load.</div>
@@ -37,11 +40,32 @@ const FEEDS = [
   { name: "Al Jazeera", url: "https://www.aljazeera.com/xml/rss/all.xml" }
 ];
 
-const KEYWORDS = [
-  "outage", "blackout", "drone", "drones", "nuclear", "attack", "emergency",
-  "crisis", "shutdown", "failure", "panic", "threat", "cyber", "grid",
-  "communications down", "food outage", "survival", "preparedness"
-];
+const STRONG = ["outage", "blackout", "drone", "drones", "nuclear", "attack", "threat", "cyber", "grid", "communications down", "food outage"];
+const URGENCY = ["breaking", "urgent", "crisis", "emergency", "terrifying", "shocking", "panic", "alert"];
+const CLICKBAIT = ["you won't believe", "you wont believe", "shocking", "terrifying", "everyone is talking", "what happened next", "???", "!!!"];
+const AWARE = ["preparedness", "survival", "failure", "shutdown", "emergency", "outage", "blackout", "drone", "nuclear"];
+
+function score(text) {
+  var t = text.toLowerCase();
+  var strong = 0, urgency = 0, click = 0, aware = 0;
+  for (var i = 0; i < STRONG.length; i++) if (t.indexOf(STRONG[i]) !== -1) strong++;
+  for (var i = 0; i < URGENCY.length; i++) if (t.indexOf(URGENCY[i]) !== -1) urgency++;
+  for (var i = 0; i < CLICKBAIT.length; i++) if (t.indexOf(CLICKBAIT[i]) !== -1) click++;
+  for (var i = 0; i < AWARE.length; i++) if (t.indexOf(AWARE[i]) !== -1) aware++;
+  if (strong >= 2 || (strong >= 1 && urgency >= 1)) return 1;
+  if (click >= 1) return 3;
+  if (strong >= 1) return 2;
+  if (aware >= 1) return 4;
+  return 0;
+}
+
+function catLabel(c) {
+  if (c === 1) return "Cat 1: current panic mongering likely";
+  if (c === 2) return "Cat 2: has panic-inducing traits";
+  if (c === 3) return "Cat 3: clickbaitish";
+  if (c === 4) return "Cat 4: worth being aware of";
+  return "";
+}
 
 async function fetchRSS(feed) {
   const proxy = "https://proxy.cors.dev/" + feed.url;
@@ -52,21 +76,12 @@ async function fetchRSS(feed) {
   const xml = parser.parseFromString(text, "text/xml");
   const items = Array.from(xml.querySelectorAll("item")).slice(0, 15);
   return items.map(function(item) {
-    return {
-      title: (item.querySelector("title") && item.querySelector("title").textContent) || "",
-      link: (item.querySelector("link") && item.querySelector("link").textContent) || "",
-      source: feed.name,
-      desc: (item.querySelector("description") && item.querySelector("description").textContent) || ""
-    };
+    var title = (item.querySelector("title") && item.querySelector("title").textContent) || "";
+    var link = (item.querySelector("link") && item.querySelector("link").textContent) || "";
+    var desc = (item.querySelector("description") && item.querySelector("description").textContent) || "";
+    var cat = score(title + " " + desc);
+    return { title: title, link: link, source: feed.name, desc: desc, cat: cat };
   });
-}
-
-function isFlagged(text) {
-  const lower = text.toLowerCase();
-  for (var i = 0; i < KEYWORDS.length; i++) {
-    if (lower.indexOf(KEYWORDS[i]) !== -1) return true;
-  }
-  return false;
 }
 
 async function loadFeeds() {
@@ -83,19 +98,16 @@ async function loadFeeds() {
       console.warn(FEEDS[f].name, e);
     }
   }
-  all.sort(function(a, b) {
-    var af = isFlagged(a.title + a.desc) ? 1 : 0;
-    var bf = isFlagged(b.title + b.desc) ? 1 : 0;
-    return bf - af;
-  });
-  status.textContent = "Loaded " + all.length + " headlines. Flagged items appear first.";
+  all = all.filter(function(i) { return i.cat > 0; });
+  all.sort(function(a, b) { return a.cat - b.cat; });
+  status.textContent = "Loaded " + all.length + " matching headlines.";
   for (var i = 0; i < all.length; i++) {
     var item = all[i];
-    var flagged = isFlagged(item.title + item.desc);
     var div = document.createElement("div");
-    div.className = "item" + (flagged ? " flagged" : "");
+    div.className = "item" + (item.cat === 1 ? " cat1" : item.cat === 2 ? " cat2" : "");
     var html = "<div><a href=\"" + item.link + "\" target=\"_blank\" rel=\"noopener\">" + item.title + "</a></div>";
-    html += "<div class=\"source\">" + item.source + (flagged ? " · potential framing match" : "") + "</div>";
+    html += "<div class=\"source\">" + item.source + "</div>";
+    html += "<div class=\"cat\">" + catLabel(item.cat) + "</div>";
     div.innerHTML = html;
     results.appendChild(div);
   }
